@@ -24,13 +24,13 @@ package org.jboss.logmanager.handlers;
 
 import java.io.File;
 import java.io.FileFilter;
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.TimeZone;
 
 /**
  * @author <a href="mailto:jperkins@redhat.com">James R. Perkins</a>
  */
-// TODO (jrp) daysToKeep is probably not needed, max backup index is what should be used
 class FileCleaner implements Runnable {
 
     private static final Object LOCK = new Object();
@@ -49,6 +49,7 @@ class FileCleaner implements Runnable {
         final FileCleaner cleaner = new FileCleaner(baseFile, daysToKeep, timeZone);
         final Thread t = new Thread(cleaner);
         t.setName("logmanager-file-cleaner");
+        t.setDaemon(true);
         t.start();
     }
 
@@ -56,8 +57,7 @@ class FileCleaner implements Runnable {
     @Override
     public void run() {
         final Calendar cal = Calendar.getInstance(timeZone);
-        cal.setTimeInMillis(System.currentTimeMillis());
-        cal.set(Calendar.DAY_OF_MONTH, daysToKeep * -1);
+        cal.add(Calendar.DAY_OF_MONTH, daysToKeep * -1);
         synchronized (LOCK) {
             final File[] files = baseFile.getParentFile().listFiles(new FileFilter() {
                 @Override

@@ -30,6 +30,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
 import java.util.logging.ErrorManager;
+import java.util.regex.Pattern;
 
 import org.jboss.logmanager.ExtLogRecord;
 
@@ -411,6 +412,7 @@ public class RotatingFileHandler extends FileHandler {
             if (rename) {
                 file.renameTo(new File(filename));
             }
+            // TODO (jrp) the whole daysToKeep needs to be thought out, might not be worth the effort
             if (daysToKeep > 0) {
                 FileCleaner.execute(file, daysToKeep, timeZone);
             }
