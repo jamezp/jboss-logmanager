@@ -24,9 +24,12 @@ package org.jboss.logmanager.handlers;
 
 import java.io.File;
 import java.io.FileFilter;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.TimeZone;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author <a href="mailto:jperkins@redhat.com">James R. Perkins</a>
@@ -34,19 +37,26 @@ import java.util.TimeZone;
 class FileCleaner implements Runnable {
 
     private static final Object LOCK = new Object();
+    private static final Pattern INDEX_PATTERN = Pattern.compile("\\.\\d+$");
 
     private final File baseFile;
     private final int daysToKeep;
+    private final SimpleDateFormat format;
     private final TimeZone timeZone;
 
-    private FileCleaner(final File baseFile, final int daysToKeep, final TimeZone timeZone) {
+    protected FileCleaner(final File baseFile, final int daysToKeep, final String suffixPattern, final TimeZone timeZone) {
         this.baseFile = baseFile;
         this.daysToKeep = daysToKeep;
         this.timeZone = timeZone;
+        if (suffixPattern == null) {
+            format = null;
+        } else {
+            format = new SimpleDateFormat(suffixPattern);
+        }
     }
 
-    public static void execute(final File baseFile, final int daysToKeep, final TimeZone timeZone) {
-        final FileCleaner cleaner = new FileCleaner(baseFile, daysToKeep, timeZone);
+    public static void execute(final File baseFile, final int daysToKeep, final String suffixPattern, final TimeZone timeZone) {
+        final FileCleaner cleaner = new FileCleaner(baseFile, daysToKeep, suffixPattern, timeZone);
         final Thread t = new Thread(cleaner);
         t.setName("logmanager-file-cleaner");
         t.setDaemon(true);
@@ -64,8 +74,31 @@ class FileCleaner implements Runnable {
                 public boolean accept(final File pathname) {
                     final String basePath = baseFile.getAbsolutePath();
                     final String path = pathname.getAbsolutePath();
-                    // TODO (jrp) probably not ideal, a path of foo would match foobar which isn't correct
-                    return !basePath.equals(path) && path.startsWith(basePath);
+                    if (basePath.equals(path) || !path.startsWith(basePath)) {
+                        return false;
+                    }
+
+                    // Get the possible suffix
+                    final String possibleSuffix = path.substring(basePath.length());
+
+                    // Attempt to parse the date
+                    if (format != null) {
+                        try {
+                            format.parse(possibleSuffix);
+                            return true;
+                        } catch (ParseException ignore) {
+                            // Attempt to remove a possible index
+                            final Matcher matcher = INDEX_PATTERN.matcher(possibleSuffix);
+                            final String rpl = matcher.replaceAll("");
+                            try {
+                                format.parse(rpl);
+                                return true;
+                            } catch (ParseException ignored) {
+                            }
+                        }
+                    }
+
+                    return INDEX_PATTERN.matcher(possibleSuffix).matches();
                 }
             });
             for (File file : (files != null ? files : new File[0])) {

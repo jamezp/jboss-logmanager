@@ -23,14 +23,18 @@
 package org.jboss.logmanager.handlers;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
 import java.util.logging.ErrorManager;
-import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.jboss.logmanager.ExtLogRecord;
 
@@ -47,7 +51,7 @@ import org.jboss.logmanager.ExtLogRecord;
  * file is renamed. A size of 0 or less indicates the size rotation is disabled. This is the default value.
  * <p/>
  * Setting the {@link #setRotateOnBoot(boolean)} to {@code true} rotates the file regardless of the other two options
- * when the first log record is written to the handler.
+ * when the file is set only if the file has a {@link java.io.File#length() length} greater than 0.
  * <p/>
  * The order the rotation check is as follows:
  * <ol>
@@ -68,6 +72,8 @@ import org.jboss.logmanager.ExtLogRecord;
  */
 public class RotatingFileHandler extends FileHandler {
 
+    public static final String COMPRESSION_SUFFIX = ".zip";
+
     private SimpleDateFormat format;
     private String nextSuffix;
     private Period period = Period.NEVER;
@@ -80,12 +86,13 @@ public class RotatingFileHandler extends FileHandler {
 
     private CountingOutputStream outputStream;
     private boolean rotateOnBoot = false;
-    private boolean firstWrite = true;
+    private boolean compress = false;
 
     /**
      * Construct a new instance with no formatter and no output file.
      */
     public RotatingFileHandler() {
+        super();
     }
 
     /**
@@ -122,6 +129,10 @@ public class RotatingFileHandler extends FileHandler {
     @Override
     public void setFile(final File file) throws FileNotFoundException {
         synchronized (outputLock) {
+            // Check for a rotate
+            if (rotateOnBoot && file != null && file.exists() && file.length() > 0L) {
+                rotate(file, 0, true);
+            }
             // Set the file
             super.setFile(file);
             if (outputStream != null)
@@ -130,6 +141,28 @@ public class RotatingFileHandler extends FileHandler {
             if (nextSuffix != null && format != null && file != null && file.lastModified() > 0) {
                 calcNextRollover(file.lastModified());
             }
+        }
+    }
+
+    /**
+     * Indicates whether or not rotated files should be compressed or not.
+     *
+     * @return {@code true} if files should be compressed, otherwise {@code false}
+     */
+    public boolean isCompressOnRotate() {
+        synchronized (outputLock) {
+            return compress;
+        }
+    }
+
+    /**
+     * Sets whether files should be compressed when rotated. If set to {@code true} files are compressed when rotated.
+     *
+     * @param compress {@code true} to compress files when rotated
+     */
+    public void setCompressOnRotate(final boolean compress) {
+        synchronized (outputLock) {
+            this.compress = compress;
         }
     }
 
@@ -175,8 +208,8 @@ public class RotatingFileHandler extends FileHandler {
     }
 
     /**
-     * Set to a value of {@code true} on the first log record processed the file should be rotated if a file of the
-     * same name already exists.
+     * Set to a value of {@code true} if the file should be rotated before the a new file is set. The rotation only
+     * happens if the file names are the same and the file has a {@link java.io.File#length() length} greater than 0.
      *
      * @param rotateOnBoot {@code true} to rotate on boot, otherwise {@code false}
      */
@@ -352,18 +385,16 @@ public class RotatingFileHandler extends FileHandler {
     protected void preWrite(final ExtLogRecord record) {
         super.preWrite(record);
         boolean doRollOver = false;
-        final File file = getFile();
-        // If rotate on boot, rotate if the file already exists
-        if (firstWrite && rotateOnBoot && file != null && file.exists() && file.length() > 0L) {
-            doRollOver = true;
-        }
+        boolean force = false;
+        long recordMillis = 0;
         if (nextSuffix != null) {
-            final long recordMillis = record.getMillis();
+            recordMillis = record.getMillis();
             if (recordMillis >= nextRotationTime) {
                 doRollOver = true;
-                calcNextRollover(recordMillis);
+                force = true;
             }
-        } else if (rotateSize > 0) {
+        }
+        if (rotateSize > 0) {
             final int maxBackupIndex = this.maxBackupIndex;
             final long currentSize = (outputStream == null ? Long.MIN_VALUE : outputStream.currentSize);
             if (currentSize > rotateSize && maxBackupIndex > 0) {
@@ -371,55 +402,87 @@ public class RotatingFileHandler extends FileHandler {
             }
         }
         if (doRollOver) {
-            rotate();
+            rotate(force);
         }
-        firstWrite = false;
+        if (recordMillis > 0L) {
+            calcNextRollover(record.getMillis());
+        }
     }
 
-    private void rotate() {
+    private void rotate(final boolean force) {
         try {
             final File file = getFile();
             if (file == null) {
                 // no file is set; a direct output stream or writer was specified
                 return;
             }
+            final long currentSize = (outputStream == null ? Long.MIN_VALUE : outputStream.currentSize);
             // first, close the original file (some OSes won't let you move/rename a file that is open)
             setFile(null);
-            final boolean rename;
-            final String filename;
-            if (nextSuffix != null) {
-                filename = file.getAbsolutePath() + nextSuffix;
-                rename = true;
-            } else {
-                filename = file.getAbsolutePath();
-                rename = false;
-            }
-
-            // If we're rotating based on size we need to check the rotation index
-            if (rotateSize > 0L) {
-                final int maxBackupIndex = this.maxBackupIndex;
-                final long currentSize = (outputStream == null ? Long.MIN_VALUE : outputStream.currentSize);
-                if (currentSize > rotateSize && maxBackupIndex > 0) {
-                    // rotate.  First, drop the max file (if any), then move each file to the next higher slot.
-                    new File(filename + "." + maxBackupIndex).delete();
-                    for (int i = maxBackupIndex - 1; i >= 1; i--) {
-                        new File(filename + "." + i).renameTo(new File(filename + "." + (i + 1)));
-                    }
-                    file.renameTo(new File(filename + ".1"));
-                }
-            }
-            // Only rotate on the date if the nextSuffix is set
-            if (rename) {
-                file.renameTo(new File(filename));
-            }
-            // TODO (jrp) the whole daysToKeep needs to be thought out, might not be worth the effort
-            if (daysToKeep > 0) {
-                FileCleaner.execute(file, daysToKeep, timeZone);
-            }
+            rotate(file, currentSize, force);
             // start new file
             setFile(file);
         } catch (FileNotFoundException e) {
             reportError("Unable to rotate log file", e, ErrorManager.OPEN_FAILURE);
+        }
+    }
+
+    private void rotate(final File file, final long currentSize, final boolean force) {
+        // first, close the original file (some OSes won't let you move/rename a file that is open)
+        final String filename;
+        if (nextSuffix != null) {
+            filename = file.getAbsolutePath() + nextSuffix;
+        } else {
+            filename = file.getAbsolutePath();
+        }
+
+        File rotateFile = null;
+
+        // If we're rotating based on size we need to check the rotation index
+        if (rotateSize > 0L) {
+            final int maxBackupIndex = this.maxBackupIndex;
+            if ((currentSize > rotateSize || force) && maxBackupIndex > 0) {
+                // rotate.  First, drop the max file (if any), then move each file to the next higher slot.
+                final File lastIndexedFile;
+                if (compress) {
+                    lastIndexedFile = new File(filename + "." + maxBackupIndex + COMPRESSION_SUFFIX);
+                } else {
+                    lastIndexedFile = new File(filename + "." + maxBackupIndex);
+                }
+                lastIndexedFile.delete();
+                for (int i = maxBackupIndex - 1; i >= 1; i--) {
+                    final File fileToRename;
+                    final File newFile;
+                    if (compress) {
+                        fileToRename = new File(filename + "." + i + COMPRESSION_SUFFIX);
+                        newFile = new File(filename + "." + (i + 1) + COMPRESSION_SUFFIX);
+                    } else {
+                        fileToRename = new File(filename + "." + i);
+                        newFile = new File(filename + "." + (i + 1));
+                    }
+                    fileToRename.renameTo(newFile);
+                }
+                rotateFile = new File(filename + ".1");
+            }
+        }
+        // Only rotate on the date if the nextSuffix is set
+        if (nextSuffix != null && rotateFile == null) {
+            rotateFile = new File(filename);
+        }
+        if (rotateFile != null) {
+            if (file.renameTo(rotateFile) && compress) {
+                try {
+                    compress(rotateFile, file.getName());
+                    rotateFile.delete();
+                } catch (IOException e) {
+                    reportError("Unable to compress rotated file", e, ErrorManager.GENERIC_FAILURE);
+                }
+            }
+        }
+        // TODO (jrp) the whole daysToKeep needs to be thought out, might not be worth the effort
+        // Maybe use some kind of PurgePolicy
+        if (daysToKeep > 0) {
+            FileCleaner.execute(file, daysToKeep, getSuffix(), timeZone);
         }
     }
 
@@ -483,6 +546,28 @@ public class RotatingFileHandler extends FileHandler {
                 break;
         }
         nextRotationTime = calendar.getTimeInMillis();
+    }
+
+    protected void compress(final File file, final String entryName) throws IOException {
+        final File zipFile = new File(file.getAbsolutePath() + COMPRESSION_SUFFIX);
+        final ZipOutputStream zipOut = new ZipOutputStream(new FileOutputStream(zipFile));
+        try {
+            zipOut.putNextEntry(new ZipEntry(entryName));
+            byte[] buffer = new byte[1024];
+
+            final FileInputStream fis = new FileInputStream(file);
+            try {
+                int len;
+                while ((len = fis.read(buffer)) > 0) {
+                    zipOut.write(buffer, 0, len);
+                }
+                zipOut.closeEntry();
+            } finally {
+                safeClose(fis);
+            }
+        } finally {
+            safeClose(zipOut);
+        }
     }
 
     private static <T extends Comparable<? super T>> T min(T a, T b) {
