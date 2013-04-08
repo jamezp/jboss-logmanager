@@ -22,8 +22,8 @@
 
 package org.jboss.logmanager;
 
-import org.testng.annotations.Test;
-import static org.testng.AssertJUnit.*;
+import org.junit.Test;
+import static org.junit.Assert.*;
 import org.jboss.logmanager.handlers.WriterHandler;
 import org.jboss.logmanager.handlers.OutputStreamHandler;
 import org.jboss.logmanager.handlers.NullHandler;
@@ -38,7 +38,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.UnsupportedEncodingException;
 
-@Test
 public final class HandlerTests {
     static {
         System.setProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager");
@@ -46,6 +45,7 @@ public final class HandlerTests {
 
     private final Formatter testFormatter = new PatternFormatter("%m");
 
+    @Test
     public void testNullHandler() throws Throwable {
         final NullHandler handler = new NullHandler();
         handler.setLevel(Level.ALL);
@@ -63,6 +63,7 @@ public final class HandlerTests {
         handler.publish(new ExtLogRecord(Level.INFO, "Test message", null));
     }
 
+    @Test
     public void testWriterHandler() throws Throwable {
         final WriterHandler handler = new WriterHandler();
         initHandler(handler);
@@ -72,6 +73,7 @@ public final class HandlerTests {
         assertEquals("Test message", writer.toString());
     }
 
+    @Test
     public void testOutputStreamHandler() throws Throwable {
         final OutputStreamHandler handler = new OutputStreamHandler();
         initHandler(handler);
@@ -81,6 +83,7 @@ public final class HandlerTests {
         assertEquals("Test message", new String(stream.toByteArray(), "utf-8"));
     }
 
+    @Test
     public void testFileHandler() throws Throwable {
         final FileHandler handler = new FileHandler();
         initHandler(handler);
@@ -114,6 +117,7 @@ public final class HandlerTests {
         }
     }
 
+    @Test
     public void testEnableDisableHandler() throws Throwable {
         final StringListHandler handler = new StringListHandler();
         testPublish(handler);

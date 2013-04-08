@@ -24,8 +24,8 @@ package org.jboss.logmanager;
 
 import org.jboss.logmanager.ExtLogRecord.FormatStyle;
 import org.jboss.logmanager.formatters.PatternFormatter;
-import org.testng.annotations.Test;
-import static org.testng.AssertJUnit.*;
+import org.junit.Test;
+import static org.junit.Assert.*;
 import org.jboss.logmanager.filters.AcceptAllFilter;
 import org.jboss.logmanager.filters.DenyAllFilter;
 import org.jboss.logmanager.filters.AllFilter;
@@ -47,7 +47,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
-@Test
 public final class FilterTests {
     static {
         System.setProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager");
@@ -55,6 +54,7 @@ public final class FilterTests {
 
     private static final Filter[] NO_FILTERS = new Filter[0];
 
+    @Test
     public void testAcceptAllFilter() {
         final Filter filter = AcceptAllFilter.getInstance();
         final AtomicBoolean ran = new AtomicBoolean();
@@ -69,6 +69,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testDenyAllFilter() {
         final Filter filter = DenyAllFilter.getInstance();
         final AtomicBoolean ran = new AtomicBoolean();
@@ -83,6 +84,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testAllFilter0() {
         final Filter filter = new AllFilter(NO_FILTERS);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -97,6 +99,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testAllFilter1() {
         final Filter filter = new AllFilter(new Filter[] {
                 AcceptAllFilter.getInstance(),
@@ -115,6 +118,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testAllFilter2() {
         final Filter filter = new AllFilter(new Filter[] {
                 AcceptAllFilter.getInstance(),
@@ -133,6 +137,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testAllFilter3() {
         final Filter filter = new AllFilter(new Filter[] {
                 DenyAllFilter.getInstance(),
@@ -151,6 +156,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testAnyFilter0() {
         final Filter filter = new AnyFilter(NO_FILTERS);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -165,6 +171,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testAnyFilter1() {
         final Filter filter = new AnyFilter(new Filter[] {
                 AcceptAllFilter.getInstance(),
@@ -183,6 +190,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testAnyFilter2() {
         final Filter filter = new AnyFilter(new Filter[] {
                 AcceptAllFilter.getInstance(),
@@ -201,6 +209,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testAnyFilter3() {
         final Filter filter = new AnyFilter(new Filter[] {
                 DenyAllFilter.getInstance(),
@@ -219,6 +228,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testInvertFilter0() {
         final Filter filter = new InvertFilter(AcceptAllFilter.getInstance());
         final AtomicBoolean ran = new AtomicBoolean();
@@ -233,6 +243,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testInvertFilter1() {
         final Filter filter = new InvertFilter(DenyAllFilter.getInstance());
         final AtomicBoolean ran = new AtomicBoolean();
@@ -247,6 +258,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testLevelChangingFilter0() {
         final Filter filter = new LevelChangingFilter(Level.INFO);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -261,6 +273,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testLevelFilter0() {
         final Filter filter = new LevelFilter(Level.INFO);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -275,6 +288,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testLevelFilter1() {
         final Filter filter = new LevelFilter(Level.WARNING);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -289,6 +303,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testLevelRangeFilter0() {
         final Filter filter = new LevelRangeFilter(Level.DEBUG, true, Level.WARN, true);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -303,6 +318,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testLevelRangeFilter1() {
         final Filter filter = new LevelRangeFilter(Level.DEBUG, true, Level.WARN, true);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -317,6 +333,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testLevelRangeFilter2() {
         final Filter filter = new LevelRangeFilter(Level.DEBUG, true, Level.WARN, true);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -331,6 +348,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testLevelRangeFilter3() {
         final Filter filter = new LevelRangeFilter(Level.DEBUG, false, Level.WARN, true);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -345,6 +363,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testLevelRangeFilter4() {
         final Filter filter = new LevelRangeFilter(Level.DEBUG, true, Level.WARN, false);
         final AtomicBoolean ran = new AtomicBoolean();
@@ -359,6 +378,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testRegexFilter0() {
         final Filter filter = new RegexFilter("test");
         final AtomicBoolean ran = new AtomicBoolean();
@@ -373,6 +393,7 @@ public final class FilterTests {
         assertTrue("Handler wasn't run", ran.get());
     }
 
+    @Test
     public void testRegexFilter1() {
         final Filter filter = new RegexFilter("pest");
         final AtomicBoolean ran = new AtomicBoolean();
@@ -387,6 +408,7 @@ public final class FilterTests {
         assertFalse("Handler was run", ran.get());
     }
 
+    @Test
     public void testSubstitueFilter0() {
         final Filter filter = new SubstituteFilter(Pattern.compile("test"), "lunch", true);
         final AtomicReference<String> result = new AtomicReference<String>();
@@ -401,6 +423,7 @@ public final class FilterTests {
         assertEquals("Substitution was not correctly applied", "This is a lunch lunch.", result.get());
     }
 
+    @Test
     public void testSubstituteFilter1() {
         final Filter filter = new SubstituteFilter(Pattern.compile("test"), "lunch", false);
         final AtomicReference<String> result = new AtomicReference<String>();
@@ -415,6 +438,7 @@ public final class FilterTests {
         assertEquals("Substitution was not correctly applied", "This is a lunch test.", result.get());
     }
 
+    @Test
     public void testSubstituteFilter2() {
         final Filter filter = new SubstituteFilter(Pattern.compile("t(es)t"), "lunch$1", true);
         final AtomicReference<String> result = new AtomicReference<String>();
@@ -429,6 +453,7 @@ public final class FilterTests {
         assertEquals("Substitution was not correctly applied", "This is a lunches lunches.", result.get());
     }
 
+    @Test
     public void testSubstituteFilter3() {
         final Filter filter = new SubstituteFilter(Pattern.compile("t(es)t"), "lunch$1", true);
         final ExtLogRecord record = new ExtLogRecord(Level.INFO, "This is a test %s", FormatStyle.PRINTF, FilterTests.class.getName());
