@@ -45,6 +45,7 @@
     </licenses>
 
     <properties>
+        <version.org.openjdk.jmh>1.10.4</version.org.openjdk.jmh>
         <maven.compiler.source>1.7</maven.compiler.source>
         <maven.compiler.target>1.7</maven.compiler.target>
     </properties>
@@ -57,10 +58,24 @@
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
+
+        <!-- Test dependencies -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>4.11</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+            <version>${version.org.openjdk.jmh}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-generator-annprocess</artifactId>
+            <version>${version.org.openjdk.jmh}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -80,6 +95,7 @@
                         <include>**/*Tests.java</include>
                     </includes>
                     <excludes>
+                        <exclude>**/BenchmarkTest.java*</exclude>
                         <exclude>**/SyslogTest.java</exclude>
                     </excludes>
                     <systemPropertyVariables>
@@ -146,4 +162,39 @@
             </plugin>
         </plugins>
     </reporting>
+
+    <profiles>
+        <profile>
+            <id>benchmark</id>
+            <activation>
+                <property>
+                    <name>benchmark</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.jboss.logmanager</groupId>
+                    <artifactId>jboss-logmanager</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/BenchmarkTest.java</include>
+                            </includes>
+                            <systemPropertyVariables>
+                                <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                                <test.log.dir>${project.build.directory}${file.separator}logs${file.separator}</test.log.dir>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
