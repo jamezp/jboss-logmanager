@@ -605,6 +605,7 @@ public final class LogManager extends java.util.logging.LogManager {
      * @return the corresponding logger
      */
     public Logger getLogger(String name) {
+        // TODO (jrp) this breaks the contract as it will never return null
         return LogContext.getLogContext().getLogger(name);
     }
 

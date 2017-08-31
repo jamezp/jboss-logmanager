@@ -346,6 +346,7 @@ public final class Logger extends java.util.logging.Logger implements Serializab
     // Parent/child
 
     /** {@inheritDoc} */
+    // TODO (jrp) this doesn't comply to the contract
     public Logger getParent() {
         final LoggerNode parentNode = loggerNode.getParent();
         return parentNode == null ? null : parentNode.createLogger();
