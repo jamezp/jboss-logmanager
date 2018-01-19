@@ -3,10 +3,19 @@ package org.jboss.logmanager.handlers;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.net.SocketFactory;
+import javax.net.ssl.SSLContext;
 
 import org.jboss.logmanager.ExtLogRecord;
+import org.jboss.logmanager.LogContext;
+import org.jboss.logmanager.Logger;
+import org.jboss.logmanager.config.FormatterConfiguration;
+import org.jboss.logmanager.config.HandlerConfiguration;
+import org.jboss.logmanager.config.LogContextConfiguration;
+import org.jboss.logmanager.config.SupplierConfiguration;
 import org.jboss.logmanager.formatters.PatternFormatter;
 import org.jboss.logmanager.handlers.SocketHandler.Protocol;
 import org.junit.Assert;
@@ -155,6 +164,100 @@ public class SocketHandlerTests extends AbstractHandlerTest {
                 Assert.assertNotNull(msg);
                 Assert.assertEquals("Test TCP handler", msg);
             }
+        }
+    }
+
+    @Test
+    public void testTlsConfig() throws Exception {
+        try (SimpleServer server = SimpleServer.createTlsServer(port)) {
+            final LogContext logContext = LogContext.create();
+            final LogContextConfiguration logContextConfiguration = LogContextConfiguration.Factory.create(logContext);
+            final SupplierConfiguration<SocketFactory> supplierConfiguration = logContextConfiguration.addSupplierConfiguration("socketFactory", () -> {
+                try {
+                    return SSLContext.getDefault().getSocketFactory();
+                } catch (NoSuchAlgorithmException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            // Create the formatter
+            final FormatterConfiguration formatterConfiguration = logContextConfiguration.addFormatterConfiguration(
+                    null, PatternFormatter.class.getName(), "pattern");
+            formatterConfiguration.setPropertyValueString("pattern", "%s\n");
+            // Create the handler
+            final HandlerConfiguration handlerConfiguration = logContextConfiguration.addHandlerConfiguration(
+                    null, SocketHandler.class.getName(), "socket",
+                    "protocol", "hostname", "port");
+            handlerConfiguration.setPropertyValueString("socketFactory", supplierConfiguration.getName());
+            handlerConfiguration.setPropertyValueString("protocol", Protocol.SSL_TCP.name());
+            handlerConfiguration.setPropertyValueString("hostname", address.getHostAddress());
+            handlerConfiguration.setPropertyValueString("port", Integer.toString(port));
+            handlerConfiguration.setPropertyValueString("autoFlush", "true");
+            handlerConfiguration.setPropertyValueString("encoding", "utf-8");
+            handlerConfiguration.setFormatterName(formatterConfiguration.getName());
+
+            logContextConfiguration.addLoggerConfiguration("").addHandlerName(handlerConfiguration.getName());
+
+            logContextConfiguration.commit();
+
+            // Create the root logger
+            final Logger logger = logContext.getLogger("");
+            logger.info("Test TCP handler " + port + " 1");
+            String msg = server.timeoutPoll();
+            Assert.assertNotNull(msg);
+            Assert.assertEquals("Test TCP handler " + port + " 1", msg);
+        }
+    }
+
+    @Test
+    public void testTcpConfigForget() throws Exception {
+        try (SimpleServer server = SimpleServer.createTcpServer(port)) {
+            final LogContext logContext = LogContext.create();
+            final LogContextConfiguration logContextConfiguration = LogContextConfiguration.Factory.create(logContext);
+            // Create the formatter
+            final FormatterConfiguration formatterConfiguration = logContextConfiguration.addFormatterConfiguration(
+                    null, PatternFormatter.class.getName(), "pattern");
+            formatterConfiguration.setPropertyValueString("pattern", "%s\n");
+            // Create the handler
+            final HandlerConfiguration handlerConfiguration = logContextConfiguration.addHandlerConfiguration(
+                    null, SocketHandler.class.getName(), "socket",
+                    "protocol", "hostname", "port");
+            handlerConfiguration.setPropertyValueString("protocol", Protocol.TCP.name());
+            handlerConfiguration.setPropertyValueString("hostname", address.getHostAddress());
+            handlerConfiguration.setPropertyValueString("port", Integer.toString(port));
+            handlerConfiguration.setPropertyValueString("autoFlush", "true");
+            handlerConfiguration.setPropertyValueString("encoding", "utf-8");
+            handlerConfiguration.setFormatterName(formatterConfiguration.getName());
+
+            logContextConfiguration.addLoggerConfiguration("").addHandlerName(handlerConfiguration.getName());
+
+            logContextConfiguration.commit();
+
+            // Create the root logger
+            final Logger logger = logContext.getLogger("");
+            logger.info("Test TCP handler " + port + " 1");
+            String msg = server.timeoutPoll();
+            Assert.assertNotNull(msg);
+            Assert.assertEquals("Test TCP handler " + port + " 1", msg);
+
+            // Attempt to set an invalid value on the handler, which should fail. Then forget which should reactivate
+            // the handler since the port change should trigger a reactivation.
+            try {
+                handlerConfiguration.setPropertyValueString("port", Integer.toString(altPort));
+                handlerConfiguration.setPropertyValueString("invalid", "invalid");
+                logContextConfiguration.commit();
+                Assert.fail("The invalid property should not have been written.");
+            } catch (IllegalArgumentException ignore) {
+                logContextConfiguration.forget();
+            }
+
+            // A reconnection should have been made and we'll get the new message on the server
+            logger.info("Test TCP handler " + port + " 2");
+            msg = server.timeoutPoll();
+            Assert.assertNotNull(msg);
+            Assert.assertEquals("Test TCP handler " + port + " 2", msg);
+
+            // Since we've reconnected we should have to clients
+            Assert.assertEquals(2, server.clientCount());
         }
     }
 

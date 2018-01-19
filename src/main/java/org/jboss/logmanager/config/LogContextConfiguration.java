@@ -20,7 +20,9 @@
 package org.jboss.logmanager.config;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.jboss.logmanager.LogContext;
 
@@ -29,6 +31,7 @@ import org.jboss.logmanager.LogContext;
  *
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
+@SuppressWarnings("unused")
 public interface LogContextConfiguration {
 
     /**
@@ -216,6 +219,51 @@ public interface LogContextConfiguration {
             }
         }
         return pojoNames;
+    }
+
+    /**
+     * Adds a supplier configuration.
+     *
+     * @param supplierName the name for the supplier
+     * @param supplier     the supplier that holds the value
+     * @param <T>          the type of the object
+     *
+     * @return the new supplier configuration
+     */
+    default <T> SupplierConfiguration<T> addSupplierConfiguration(final String supplierName, final Supplier<T> supplier) {
+        return new SupplierConfigurationImpl<>(supplierName, supplier);
+    }
+
+    /**
+     * Removes the supplier configuration.
+     *
+     * @param supplierName the name of the supplier to remove
+     *
+     * @return {@code true} if the supplier configuration was successfully removed, otherwise {@code false}
+     */
+    default boolean removeSupplierConfiguration(final String supplierName) {
+        return false;
+    }
+
+    /**
+     * Returns the supplier configuration associated with the name.
+     *
+     * @param supplierName the supplier configuration name
+     * @param <T>          the type of the object
+     *
+     * @return the supplier configuration if found, otherwise {@code null}
+     */
+    default <T> SupplierConfiguration<T> getSupplierConfiguration(final String supplierName) {
+        return null;
+    }
+
+    /**
+     * Returns a list of all the current supplier names.
+     *
+     * @return the supplier names
+     */
+    default List<String> getSupplierNames() {
+        return Collections.emptyList();
     }
 
     /**

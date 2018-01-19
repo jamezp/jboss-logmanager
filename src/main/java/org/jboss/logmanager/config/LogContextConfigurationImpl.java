@@ -44,6 +44,7 @@ import org.jboss.logmanager.filters.LevelRangeFilter;
 import org.jboss.logmanager.filters.RegexFilter;
 import org.jboss.logmanager.filters.SubstituteFilter;
 
+import java.util.function.Supplier;
 import java.util.logging.ErrorManager;
 import java.util.logging.Filter;
 import java.util.logging.Formatter;
@@ -67,6 +68,7 @@ final class LogContextConfigurationImpl implements LogContextConfiguration {
     private final Map<String, FilterConfigurationImpl> filters = new HashMap<String, FilterConfigurationImpl>();
     private final Map<String, ErrorManagerConfigurationImpl> errorManagers = new HashMap<String, ErrorManagerConfigurationImpl>();
     private final Map<String, PojoConfigurationImpl> pojos = new HashMap<String, PojoConfigurationImpl>();
+    private final Map<String, SupplierConfigurationImpl<?>> suppliers = new HashMap<>();
     private final Map<String, Logger> loggerRefs = new HashMap<String, Logger>();
     private final Map<String, Handler> handlerRefs = new HashMap<String, Handler>();
     private final Map<String, Filter> filterRefs = new HashMap<String, Filter>();
@@ -309,6 +311,52 @@ final class LogContextConfigurationImpl implements LogContextConfiguration {
     }
 
     @Override
+    public <T> SupplierConfiguration<T> addSupplierConfiguration(final String supplierName, final Supplier<T> supplier) {
+        if (suppliers.containsKey(supplierName)) {
+            throw new IllegalArgumentException(String.format("Supplier \"%s\" already exists", supplierName));
+        }
+        final SupplierConfigurationImpl<T> supplierConfiguration = new SupplierConfigurationImpl<>(supplierName, supplier);
+        suppliers.put(supplierName, supplierConfiguration);
+        return supplierConfiguration;
+    }
+
+    @Override
+    public boolean removeSupplierConfiguration(final String supplierName) {
+        final SupplierConfigurationImpl<?> removed = suppliers.get(supplierName);
+        if (removed != null) {
+            transactionState.addLast(new ConfigAction<Void>() {
+                public Void validate() throws IllegalArgumentException {
+                    return null;
+                }
+
+                public void applyPreCreate(final Void param) {
+                }
+
+                public void applyPostCreate(final Void param) {
+                }
+
+                @SuppressWarnings({ "unchecked" })
+                public void rollback() {
+                    suppliers.put(supplierName, removed);
+                }
+            });
+            return true;
+        }
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T> SupplierConfiguration<T> getSupplierConfiguration(final String supplierName) {
+        return (SupplierConfiguration<T>) suppliers.get(supplierName);
+    }
+
+    @Override
+    public List<String> getSupplierNames() {
+        return new ArrayList<>(suppliers.keySet());
+    }
+
+    @Override
     public void prepare() {
         doPrepare(transactionState);
         for (Deque<ConfigAction<?>> items : postConfigurationTransactionState.values()) {
@@ -485,6 +533,8 @@ final class LogContextConfigurationImpl implements LogContextConfiguration {
             return new SimpleObjectProducer(Enum.valueOf(paramType.asSubclass(Enum.class), trimmedValue));
         } else if (pojos.containsKey(trimmedValue)) {
             return new RefProducer(trimmedValue, pojoRefs);
+        } else if (suppliers.containsKey(trimmedValue)) {
+            return new SupplierProducer(suppliers.get(trimmedValue));
         } else {
             throw new IllegalArgumentException("Unknown parameter type for property " + propertyName + " on " + objClass);
         }

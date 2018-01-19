@@ -20,6 +20,7 @@
 package org.jboss.logmanager.config;
 
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
@@ -56,5 +57,18 @@ class RefProducer implements ObjectProducer {
 
     public Object getObject() {
         return refs.get(name);
+    }
+}
+
+class SupplierProducer implements ObjectProducer {
+    private final Supplier<?> supplier;
+
+    SupplierProducer(final Supplier<?> supplier) {
+        this.supplier = supplier;
+    }
+
+    @Override
+    public Object getObject() {
+        return supplier.get();
     }
 }
