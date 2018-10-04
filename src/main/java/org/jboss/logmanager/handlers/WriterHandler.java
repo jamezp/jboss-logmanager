@@ -54,6 +54,7 @@ public class WriterHandler extends ExtHandler {
         }
         try {
             synchronized (outputLock) {
+                // TODO (jrp) the writer would be null on a failed rotate when setFile() fails
                 if (writer == null) {
                     return;
                 }
