@@ -46,7 +46,7 @@ import static org.jboss.logmanager.LoggerNode.attachmentsFull;
  * A logging context, for producing isolated logging environments.
  */
 @SuppressWarnings({"unused", "WeakerAccess"})
-public final class LogContext implements AutoCloseable {
+public final class LogContext extends ContextHolder implements AutoCloseable {
     private static final LogContext SYSTEM_CONTEXT = new LogContext(false, discoverDefaultInitializer());
 
     private static LogContextInitializer discoverDefaultInitializer() {

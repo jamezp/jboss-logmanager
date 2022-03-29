@@ -155,14 +155,13 @@ class ObjectBuilder<T> {
      *
      * @return a supplier which can create the object
      */
-    Supplier<T> build(final Map<String, Supplier<?>> pojos) {
+    Supplier<T> build() {
         if (className == null) {
             throw new IllegalArgumentException("className is null");
         }
         final Map<String, String> constructorProperties = new LinkedHashMap<>(this.constructorProperties);
         final Map<String, String> properties = new LinkedHashMap<>(this.properties);
         final Set<String> postConstructMethods = new LinkedHashSet<>(this.postConstructMethods);
-        final Map<String, Supplier<?>> objects = new LinkedHashMap<>(pojos);
         final String moduleName = this.moduleName;
         return () -> {
             final ClassLoader classLoader;
@@ -192,7 +191,7 @@ class ObjectBuilder<T> {
                     throw new IllegalArgumentException(String.format("No property named \"%s\" in \"%s\"", property, className));
                 }
                 paramTypes[i] = type;
-                params[i] = getValue(actualClass, property, type, entry.getValue(), objects);
+                params[i] = getValue(actualClass, property, type, entry.getValue(), logContext.getPojos());
                 i++;
             }
             final Constructor<? extends T> constructor;
@@ -214,7 +213,7 @@ class ObjectBuilder<T> {
                 if (type == null) {
                     throw new IllegalArgumentException(String.format("Failed to determine type for setter \"%s\" on type \"%s\"", method.getName(), className));
                 }
-                setters.put(method, getValue(actualClass, entry.getKey(), type, entry.getValue(), objects));
+                setters.put(method, getValue(actualClass, entry.getKey(), type, entry.getValue(), logContext.getPojos()));
             }
 
             // Define known type parameters
@@ -258,7 +257,7 @@ class ObjectBuilder<T> {
     }
 
     @SuppressWarnings("unchecked")
-    private Object getValue(final Class<?> objClass, final String propertyName, final Class<?> paramType, final String value, final Map<String, Supplier<?>> objects) {
+    private Object getValue(final Class<?> objClass, final String propertyName, final Class<?> paramType, final String value, final Map<String, Supplier<Object>> objects) {
         if (value == null) {
             if (paramType.isPrimitive()) {
                 throw new IllegalArgumentException(String.format("Cannot assign null value to primitive property \"%s\" of %s", propertyName, objClass));
