@@ -34,6 +34,7 @@ import java.util.logging.Level;
 import java.util.regex.Pattern;
 
 import org.jboss.logmanager.LogContext;
+import org.jboss.logmanager.configuration.api.ConfigValue;
 import org.jboss.modules.Module;
 import org.jboss.modules.ModuleLoader;
 
@@ -43,8 +44,8 @@ import org.jboss.modules.ModuleLoader;
  * @author <a href="mailto:jperkins@redhat.com">James R. Perkins</a>
  */
 @SuppressWarnings({"UnusedReturnValue"})
-class ObjectBuilder<T> {
-
+public class ObjectBuilder<T> {
+    private final String name;
     private final LogContext logContext;
     private final ContextConfiguration contextConfiguration;
     private final Class<? extends T> baseClass;
@@ -55,8 +56,10 @@ class ObjectBuilder<T> {
     private final Set<String> postConstructMethods;
     private String moduleName;
 
-    private ObjectBuilder(final LogContext logContext, final ContextConfiguration contextConfiguration,
+    private ObjectBuilder(final String name, final LogContext logContext,
+                          final ContextConfiguration contextConfiguration,
                           final Class<? extends T> baseClass, final String className) {
+        this.name = name;
         this.logContext = logContext;
         this.contextConfiguration = contextConfiguration;
         this.baseClass = baseClass;
@@ -70,16 +73,19 @@ class ObjectBuilder<T> {
     /**
      * Create a new {@link ObjectBuilder}.
      *
-     * @param logContext the log context being configured
-     * @param baseClass  the base type
-     * @param className  the name of the class to create
-     * @param <T>        the type being created
+     * @param name                 the configuration name for the object
+     * @param logContext           the log context being configured
+     * @param contextConfiguration the context configuration for looking up other object
+     * @param baseClass            the base type
+     * @param className            the name of the class to create
+     * @param <T>                  the type being created
      *
      * @return a new {@link ObjectBuilder}
      */
-    static <T> ObjectBuilder<T> of(final LogContext logContext, final ContextConfiguration contextConfiguration,
-                                   final Class<? extends T> baseClass, final String className) {
-        return new ObjectBuilder<>(logContext, contextConfiguration, baseClass, className);
+    public static <T> ObjectBuilder<T> of(final String name, final LogContext logContext,
+                                          final ContextConfiguration contextConfiguration,
+                                          final Class<? extends T> baseClass, final String className) {
+        return new ObjectBuilder<>(name, logContext, contextConfiguration, baseClass, className);
     }
 
     /**
@@ -93,7 +99,7 @@ class ObjectBuilder<T> {
      *
      * @return this builder
      */
-    ObjectBuilder<T> addConstructorProperty(final String name, final String value) {
+    public ObjectBuilder<T> addConstructorProperty(final String name, final String value) {
         constructorProperties.put(name, value);
         return this;
     }
@@ -106,7 +112,7 @@ class ObjectBuilder<T> {
      *
      * @return this builder
      */
-    ObjectBuilder<T> addPostConstructMethods(final String... methodNames) {
+    public ObjectBuilder<T> addPostConstructMethods(final String... methodNames) {
         if (methodNames != null) {
             Collections.addAll(postConstructMethods, methodNames);
         }
@@ -121,7 +127,7 @@ class ObjectBuilder<T> {
      *
      * @return this builder
      */
-    ObjectBuilder<T> addProperty(final String name, final String value) {
+    public ObjectBuilder<T> addProperty(final String name, final String value) {
         properties.put(name, value);
         return this;
     }
@@ -135,8 +141,22 @@ class ObjectBuilder<T> {
      *
      * @return this builder
      */
-    ObjectBuilder<T> addDefinedProperty(final String name, final Class<?> type, final Supplier<?> value) {
-        definedProperties.add(new PropertyValue(name, type, value));
+    public ObjectBuilder<T> addDefinedProperty(final String name, final Class<?> type, final ConfigValue<?> value, final String stringValue) {
+        definedProperties.add(new PropertyValue(name, type, value::value, stringValue));
+        return this;
+    }
+
+    /**
+     * Adds a defined property to be set after the object is created.
+     *
+     * @param name  the name of the property
+     * @param type  the type of the property
+     * @param value a supplier for the property value
+     *
+     * @return this builder
+     */
+    public ObjectBuilder<T> addDefinedProperty(final String name, final Class<?> type, final Supplier<?> value, final String stringValue) {
+        definedProperties.add(new PropertyValue(name, type, value, stringValue));
         return this;
     }
 
@@ -147,7 +167,7 @@ class ObjectBuilder<T> {
      *
      * @return this builder
      */
-    ObjectBuilder<T> setModuleName(final String moduleName) {
+    public ObjectBuilder<T> setModuleName(final String moduleName) {
         this.moduleName = moduleName;
         return this;
     }
@@ -157,15 +177,18 @@ class ObjectBuilder<T> {
      *
      * @return a supplier which can create the object
      */
-    Supplier<T> build() {
+    public ConfigValue<T> build() {
         if (className == null) {
             throw new IllegalArgumentException("className is null");
         }
-        final Map<String, String> constructorProperties = new LinkedHashMap<>(this.constructorProperties);
-        final Map<String, String> properties = new LinkedHashMap<>(this.properties);
-        final Set<String> postConstructMethods = new LinkedHashSet<>(this.postConstructMethods);
+        // TODO (jrp) we should handle expressions here so the ConfigValue could return the expression
+        final Map<String, String> constructorProperties = Collections.unmodifiableMap(new LinkedHashMap<>(this.constructorProperties));
+        final Map<String, String> buildProperties = Collections.unmodifiableMap(new LinkedHashMap<>(this.properties));
+        final Set<String> postConstructMethods = Collections.unmodifiableSet(new LinkedHashSet<>(this.postConstructMethods));
+        final Map<String, String> properties = new LinkedHashMap<>(buildProperties);
+        definedProperties.forEach((value) -> properties.put(value.name, value.stringValue));
         final String moduleName = this.moduleName;
-        return () -> {
+        final Supplier<T> object = () -> {
             final ClassLoader classLoader;
             if (moduleName != null) {
                 try {
@@ -205,7 +228,7 @@ class ObjectBuilder<T> {
 
             // Get all the setters
             final Map<Method, Object> setters = new LinkedHashMap<>();
-            for (Map.Entry<String, String> entry : properties.entrySet()) {
+            for (Map.Entry<String, String> entry : buildProperties.entrySet()) {
                 final Method method = getPropertySetter(actualClass, entry.getKey());
                 if (method == null) {
                     throw new IllegalArgumentException(String.format("Failed to locate setter for property \"%s\" on type \"%s\"", entry.getKey(), className));
@@ -254,6 +277,62 @@ class ObjectBuilder<T> {
                 return instance;
             } catch (Exception e) {
                 throw new IllegalArgumentException(String.format("Failed to instantiate class \"%s\"", className), e);
+            }
+        };
+        return new ConfigValue<>() {
+            private final Map<String, String> props = Collections.unmodifiableMap(properties);
+            private volatile T value;
+
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public String moduleName() {
+                return moduleName;
+            }
+
+            @Override
+            public String className() {
+                return className;
+            }
+
+            @Override
+            public Set<String> constructorPropertyNames() {
+                return constructorProperties.keySet();
+            }
+
+            @Override
+            public String constructorProperty(final String name) {
+                return constructorProperties.get(name);
+            }
+
+            @Override
+            public Set<String> postConstructMethods() {
+                return postConstructMethods;
+            }
+
+            @Override
+            public Set<String> propertyNames() {
+                return props.keySet();
+            }
+
+            @Override
+            public String property(final String name) {
+                return props.get(name);
+            }
+
+            @Override
+            public T value() {
+                if (value == null) {
+                    synchronized (this) {
+                        if (value == null) {
+                            value = object.get();
+                        }
+                    }
+                }
+                return value;
             }
         };
     }
@@ -378,11 +457,13 @@ class ObjectBuilder<T> {
         final String name;
         final Class<?> type;
         final Supplier<?> value;
+        final String stringValue;
 
-        private PropertyValue(final String name, final Class<?> type, final Supplier<?> value) {
+        private PropertyValue(final String name, final Class<?> type, final Supplier<?> value, final String stringValue) {
             this.name = name;
             this.type = type;
             this.value = value;
+            this.stringValue = stringValue;
         }
 
         @Override

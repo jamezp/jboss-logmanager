@@ -20,10 +20,14 @@
 package org.jboss.logmanager.configuration;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.logging.ErrorManager;
 import java.util.logging.Filter;
@@ -36,6 +40,7 @@ import io.smallrye.common.constraint.Assert;
 import io.smallrye.common.expression.Expression;
 import org.jboss.logmanager.LogContext;
 import org.jboss.logmanager.StandardOutputStreams;
+import org.jboss.logmanager.configuration.api.ConfigValue;
 import org.jboss.logmanager.configuration.filters.FilterExpressions;
 import org.jboss.logmanager.filters.AcceptAllFilter;
 import org.jboss.logmanager.filters.DenyAllFilter;
@@ -111,12 +116,14 @@ public class PropertyConfigurator {
             // duplicate
             return;
         } */
+        final Map<String, String> properties = new LinkedHashMap<>();
         final Logger logger = logContext.getLogger(loggerName);
 
         // Get logger level
         final String levelName = getStringProperty(getKey("logger", loggerName, "level"));
         if (levelName != null) {
             logger.setLevel(Level.parse(levelName));
+            properties.put("level", levelName);
         }
 
         // Get logger filters
@@ -124,6 +131,7 @@ public class PropertyConfigurator {
         if (filterName != null) {
             if (configureFilter(filterName)) {
                 logger.setFilter(contextConfiguration.getFilter(filterName));
+                properties.put("filter", filterName);
             }
         }
 
@@ -134,18 +142,24 @@ public class PropertyConfigurator {
                 logger.addHandler(contextConfiguration.getHandler(name));
             }
         }
+        if (handlerNames.length > 0) {
+            properties.put("handlers", getStringProperty(getKey("logger", loggerName, "handlers")));
+        }
 
         // Get logger properties
         final String useParentHandlersString = getStringProperty(getKey("logger", loggerName, "useParentHandlers"));
         if (useParentHandlersString != null) {
             logger.setUseParentHandlers(resolveBooleanExpression(useParentHandlersString));
+            properties.put("useParentHandlers", Boolean.toString(resolveBooleanExpression(useParentHandlersString)));
         }
         final String useParentFiltersString = getStringProperty(getKey("logger", loggerName, "useParentFilters"));
         if (useParentFiltersString != null) {
             if (logger instanceof org.jboss.logmanager.Logger) {
                 ((org.jboss.logmanager.Logger) logger).setUseParentFilters(resolveBooleanExpression(useParentHandlersString));
+                properties.put("useParentFilters", Boolean.toString(resolveBooleanExpression(useParentHandlersString)));
             }
         }
+        contextConfiguration.addLogger(loggerName, SingletonConfigValue.of(loggerName, logger, properties));
     }
 
     private boolean configureHandler(final String handlerName) {
@@ -159,7 +173,7 @@ public class PropertyConfigurator {
             return false;
         }
 
-        final ObjectBuilder<Handler> handlerBuilder = ObjectBuilder.of(logContext, contextConfiguration, Handler.class, className)
+        final ObjectBuilder<Handler> handlerBuilder = ObjectBuilder.of(handlerName, logContext, contextConfiguration, Handler.class, className)
                 .setModuleName(getStringProperty(getKey("handler", handlerName, "module")))
                 .addPostConstructMethods(getStringCsvArray(getKey("handler", handlerName, "postConfiguration")));
 
@@ -173,7 +187,7 @@ public class PropertyConfigurator {
         final String filter = getStringProperty(getKey("handler", handlerName, "filter"));
         if (filter != null) {
             if (configureFilter(filter)) {
-                handlerBuilder.addDefinedProperty("filter", Filter.class, contextConfiguration.getFilters().get(filter));
+                handlerBuilder.addDefinedProperty("filter", Filter.class, contextConfiguration.getFilters().get(filter), filter);
             }
         }
         final String levelName = getStringProperty(getKey("handler", handlerName, "level"));
@@ -184,40 +198,37 @@ public class PropertyConfigurator {
         if (formatterName != null) {
             if (configureFormatter(formatterName)) {
                 handlerBuilder.addDefinedProperty("formatter", Formatter.class, contextConfiguration.getFormatters()
-                        .get(formatterName));
+                        .get(formatterName), formatterName);
             }
         }
         final String errorManagerName = getStringProperty(getKey("handler", handlerName, "errorManager"));
         if (errorManagerName != null) {
             if (configureErrorManager(errorManagerName)) {
-                handlerBuilder.addDefinedProperty("errorManager", ErrorManager.class, contextConfiguration.getErrorManagers()
-                        .get(errorManagerName));
+                handlerBuilder.addDefinedProperty("errorManager", ErrorManager.class, contextConfiguration.getErrorManager(errorManagerName), handlerName);
             }
         }
 
         final String[] handlerNames = getStringCsvArray(getKey("handler", handlerName, "handlers"));
         if (handlerNames.length > 0) {
-            final List<Supplier<Handler>> subhandlers = new ArrayList<>();
+            final List<ConfigValue<Handler>> subhandlers = new ArrayList<>();
             for (String name : handlerNames) {
                 if (configureHandler(name)) {
                     subhandlers.add(contextConfiguration.getHandlers().get(name));
                 }
             }
-            handlerBuilder.addDefinedProperty("handlers", Handler[].class, new Supplier<Handler[]>() {
-
-                @Override
-                public Handler[] get() {
-                    if (subhandlers.isEmpty()) {
-                        return new Handler[0];
-                    }
-                    final Handler[] result = new Handler[subhandlers.size()];
-                    int i = 0;
-                    for (Supplier<Handler> supplier : subhandlers) {
-                        result[i++] = supplier.get();
-                    }
-                    return result;
+            // TODO (jrp) this should be a lazy singleton supplier
+            final Supplier<Handler[]> lazyValue = () -> {
+                if (subhandlers.isEmpty()) {
+                    return new Handler[0];
                 }
-            });
+                final Handler[] result = new Handler[subhandlers.size()];
+                int i = 0;
+                for (ConfigValue<Handler> supplier : subhandlers) {
+                    result[i++] = supplier.value();
+                }
+                return result;
+            };
+            handlerBuilder.addDefinedProperty("handlers", Handler[].class, lazyValue, getStringProperty(getKey("handler", handlerName, "handlers")));
         }
         contextConfiguration.addHandler(handlerName, handlerBuilder.build());
         return true;
@@ -233,7 +244,7 @@ public class PropertyConfigurator {
             StandardOutputStreams.printError("Formatter %s is not defined%n", formatterName);
             return false;
         }
-        final ObjectBuilder<Formatter> formatterBuilder = ObjectBuilder.of(logContext, contextConfiguration, Formatter.class, className)
+        final ObjectBuilder<Formatter> formatterBuilder = ObjectBuilder.of(formatterName, logContext, contextConfiguration, Formatter.class, className)
                 .setModuleName(getStringProperty(getKey("formatter", formatterName, "module")))
                 .addPostConstructMethods(getStringCsvArray(getKey("formatter", formatterName, "postConfiguration")));
         configureProperties(formatterBuilder, "formatter", formatterName);
@@ -251,7 +262,7 @@ public class PropertyConfigurator {
             StandardOutputStreams.printError("Error manager %s is not defined%n", errorManagerName);
             return false;
         }
-        final ObjectBuilder<ErrorManager> errorManagerBuilder = ObjectBuilder.of(logContext, contextConfiguration, ErrorManager.class, className)
+        final ObjectBuilder<ErrorManager> errorManagerBuilder = ObjectBuilder.of(errorManagerName, logContext, contextConfiguration, ErrorManager.class, className)
                 .setModuleName(getStringProperty(getKey("errorManager", errorManagerName, "module")))
                 .addPostConstructMethods(getStringCsvArray(getKey("errorManager", errorManagerName, "postConfiguration")));
         configureProperties(errorManagerBuilder, "errorManager", errorManagerName);
@@ -268,16 +279,16 @@ public class PropertyConfigurator {
         String filterValue = getStringProperty(getKey("filter", filterName), true, false);
         if (filterValue == null) {
             // We are a filters expression, parse the expression and create a filters
-            contextConfiguration.addFilter(filterName, () -> FilterExpressions.parse(logContext, filterName));
+            contextConfiguration.addFilter(filterName, SingletonConfigValue.of(filterName, FilterExpressions.parse(logContext, filterName)));
         } else {
             // The AcceptAllFilter and DenyAllFilter are singletons.
             if (AcceptAllFilter.class.getName().equals(filterValue)) {
-                contextConfiguration.addFilter(filterName, AcceptAllFilter::getInstance);
+                contextConfiguration.addFilter(filterName, SingletonConfigValue.of(filterName, AcceptAllFilter.getInstance()));
             } else if (DenyAllFilter.class.getName().equals(filterValue)) {
-                contextConfiguration.addFilter(filterName, DenyAllFilter::getInstance);
+                contextConfiguration.addFilter(filterName, SingletonConfigValue.of(filterName, DenyAllFilter.getInstance()));
             } else {
                 // We assume we're a defined filter
-                final ObjectBuilder<Filter> filterBuilder = ObjectBuilder.of(logContext, contextConfiguration, Filter.class, filterValue)
+                final ObjectBuilder<Filter> filterBuilder = ObjectBuilder.of(filterName, logContext, contextConfiguration, Filter.class, filterValue)
                         .setModuleName(getStringProperty(getKey("filter", filterName, "module")))
                         .addPostConstructMethods(getStringCsvArray(getKey("filter", filterName, "postConfiguration")));
                 configureProperties(filterBuilder, "errorManager", filterName);
@@ -297,7 +308,7 @@ public class PropertyConfigurator {
             StandardOutputStreams.printError("POJO %s is not defined%n", pojoName);
             return;
         }
-        final ObjectBuilder<Object> pojoBuilder = ObjectBuilder.of(logContext, contextConfiguration, Object.class, className)
+        final ObjectBuilder<Object> pojoBuilder = ObjectBuilder.of(pojoName, logContext, contextConfiguration, Object.class, className)
                 .setModuleName(getStringProperty(getKey("pojo", pojoName, "module")))
                 .addPostConstructMethods(getStringCsvArray(getKey("pojo", pojoName, "postConfiguration")));
         configureProperties(pojoBuilder, "pojo", pojoName);
@@ -363,5 +374,70 @@ public class PropertyConfigurator {
         final EnumSet<Expression.Flag> flags = EnumSet.noneOf(Expression.Flag.class);
         final Expression expression = Expression.compile(possibleExpression, flags);
         return expression.evaluateWithPropertiesAndEnvironment(false);
+    }
+
+    private static class SingletonConfigValue<T> implements ConfigValue<T> {
+        private final String name;
+        private final T value;
+        private final Map<String, String> properties;
+
+        private SingletonConfigValue(final String name, final T value, final Map<String, String> properties) {
+            this.name = name;
+            this.value = value;
+            this.properties = properties;
+        }
+
+        @Override
+        public String name() {
+            return name;
+        }
+
+        static <T> SingletonConfigValue<T> of(final String name, final T value) {
+            return new SingletonConfigValue<>(name, value, Collections.emptyMap());
+        }
+
+        static <T> SingletonConfigValue<T> of(final String name, final T value, final Map<String, String> properties) {
+            return new SingletonConfigValue<>(name, value, properties);
+        }
+
+        @Override
+        public String moduleName() {
+            return Modules.getModuleName(value.getClass());
+        }
+
+        @Override
+        public String className() {
+            return value.getClass().getName();
+        }
+
+        @Override
+        public Set<String> constructorPropertyNames() {
+            return Collections.emptySet();
+        }
+
+        @Override
+        public String constructorProperty(final String name) {
+            return null;
+        }
+
+        @Override
+        public Set<String> postConstructMethods() {
+            return Collections.emptySet();
+        }
+
+        @Override
+        public Set<String> propertyNames() {
+            return properties.keySet();
+        }
+
+        @Override
+        public String property(final String name) {
+            return properties.get(name);
+        }
+
+        @Override
+        public T value() {
+            return value;
+        }
     }
 }

@@ -57,6 +57,7 @@ import org.jboss.logmanager.handlers.ConsoleHandler;
  *
  * @author <a href="mailto:jperkins@redhat.com">James R. Perkins</a>
  */
+// TODO (jrp) this needs to be cached somehow
 public class DefaultLogContextConfigurator implements LogContextConfigurator {
 
     @Override
