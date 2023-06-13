@@ -25,6 +25,7 @@ import java.security.PrivilegedAction;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -98,26 +99,7 @@ final class LoggerNode implements AutoCloseable {
      * The set of phantom references to active loggers.
      */
     private final Set<Reference<Logger, LoggerNode>> activeLoggers = ConcurrentHashMap.newKeySet();
-
-    /**
-     * The first attachment key.
-     */
-    private Logger.AttachmentKey<?> attachmentKey1;
-
-    /**
-     * The first attachment value.
-     */
-    private Object attachmentValue1;
-
-    /**
-     * The second attachment key.
-     */
-    private Logger.AttachmentKey<?> attachmentKey2;
-
-    /**
-     * The second attachment value.
-     */
-    private Object attachmentValue2;
+    private final Map<Logger.AttachmentKey<?>, Object> attachments;
 
     /**
      * The atomic updater for the {@link #handlers} field.
@@ -162,6 +144,7 @@ final class LoggerNode implements AutoCloseable {
         }
         handlers = safeCloneHandlers(initializer.getInitialHandlers(fullName));
         children = context.createChildMap();
+        attachments = new CopyOnWriteMap<>();
     }
 
     /**
@@ -199,6 +182,7 @@ final class LoggerNode implements AutoCloseable {
         }
         handlers = safeCloneHandlers(initializer.getInitialHandlers(fullName));
         children = context.createChildMap();
+        attachments = new CopyOnWriteMap<>();
     }
 
     static Handler[] safeCloneHandlers(Handler... initialHandlers) {
@@ -248,10 +232,7 @@ final class LoggerNode implements AutoCloseable {
             handlersUpdater.clear(this);
             useParentFilter = false;
             useParentHandlers = true;
-            attachmentKey1 = null;
-            attachmentValue1 = null;
-            attachmentKey2 = null;
-            attachmentValue2 = null;
+            attachments.clear();
             children.clear();
         } finally {
             treeLock.unlock();
@@ -486,83 +467,27 @@ final class LoggerNode implements AutoCloseable {
     @SuppressWarnings({ "unchecked" })
     <V> V getAttachment(final Logger.AttachmentKey<V> key) {
         Assert.checkNotNullParam("key", key);
-        synchronized (this) {
-            if (key == attachmentKey1)
-                return (V) attachmentValue1;
-            if (key == attachmentKey2)
-                return (V) attachmentValue2;
-        }
-        return null;
+        return (V) attachments.get(key);
     }
 
     @SuppressWarnings({ "unchecked" })
     <V> V attach(final Logger.AttachmentKey<V> key, final V value) {
         Assert.checkNotNullParam("key", key);
         Assert.checkNotNullParam("value", value);
-        V old;
-        synchronized (this) {
-            if (key == attachmentKey1) {
-                old = (V) attachmentValue1;
-                attachmentValue1 = value;
-            } else if (key == attachmentKey2) {
-                old = (V) attachmentValue2;
-                attachmentValue2 = value;
-            } else if (attachmentKey1 == null) {
-                old = null;
-                attachmentKey1 = key;
-                attachmentValue1 = value;
-            } else if (attachmentKey2 == null) {
-                old = null;
-                attachmentKey2 = key;
-                attachmentValue2 = value;
-            } else {
-                throw attachmentsFull();
-            }
-        }
-        return old;
+        return (V) attachments.put(key, value);
     }
 
     @SuppressWarnings({ "unchecked" })
     <V> V attachIfAbsent(final Logger.AttachmentKey<V> key, final V value) {
         Assert.checkNotNullParam("key", key);
         Assert.checkNotNullParam("value", value);
-        V old;
-        synchronized (this) {
-            if (key == attachmentKey1) {
-                old = (V) attachmentValue1;
-            } else if (key == attachmentKey2) {
-                old = (V) attachmentValue2;
-            } else if (attachmentKey1 == null) {
-                old = null;
-                attachmentKey1 = key;
-                attachmentValue1 = value;
-            } else if (attachmentKey2 == null) {
-                old = null;
-                attachmentKey2 = key;
-                attachmentValue2 = value;
-            } else {
-                throw attachmentsFull();
-            }
-        }
-        return old;
+        return (V) attachments.putIfAbsent(key, value);
     }
 
     @SuppressWarnings({ "unchecked" })
     public <V> V detach(final Logger.AttachmentKey<V> key) {
         Assert.checkNotNullParam("key", key);
-        V old;
-        synchronized (this) {
-            if (key == attachmentKey1) {
-                old = (V) attachmentValue1;
-                attachmentValue1 = null;
-            } else if (key == attachmentKey2) {
-                old = (V) attachmentValue2;
-                attachmentValue2 = null;
-            } else {
-                old = null;
-            }
-        }
-        return old;
+        return (V) attachments.remove(key);
     }
 
     String getFullName() {
@@ -640,9 +565,5 @@ final class LoggerNode implements AutoCloseable {
                 }
             }
         };
-    }
-
-    static IllegalArgumentException attachmentsFull() {
-        return new IllegalArgumentException("Attachments map is full");
     }
 }

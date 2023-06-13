@@ -19,8 +19,6 @@
 
 package org.jboss.logmanager;
 
-import static org.jboss.logmanager.LoggerNode.attachmentsFull;
-
 import java.security.AccessController;
 import java.security.Permission;
 import java.security.PrivilegedAction;
@@ -75,25 +73,7 @@ public final class LogContext implements AutoCloseable {
     private final boolean strong;
     private final LogContextInitializer initializer;
 
-    /**
-     * The first attachment key.
-     */
-    private Logger.AttachmentKey<?> attachmentKey1;
-
-    /**
-     * The first attachment value.
-     */
-    private Object attachmentValue1;
-
-    /**
-     * The second attachment key.
-     */
-    private Logger.AttachmentKey<?> attachmentKey2;
-
-    /**
-     * The second attachment value.
-     */
-    private Object attachmentValue2;
+    private final Map<Logger.AttachmentKey<?>, Object> attachments;
 
     /**
      * This lazy holder class is required to prevent a problem due to a LogContext instance being constructed
@@ -147,6 +127,7 @@ public final class LogContext implements AutoCloseable {
         levelMapReference = new AtomicReference<Map<String, Reference<Level, Void>>>(LazyHolder.INITIAL_LEVEL_MAP);
         rootLogger = new LoggerNode(this);
         closeHandlers = new LinkedHashSet<>();
+        attachments = new CopyOnWriteMap<>();
     }
 
     /**
@@ -213,13 +194,7 @@ public final class LogContext implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public <V> V getAttachment(Logger.AttachmentKey<V> key) {
         Assert.checkNotNullParam("key", key);
-        synchronized (this) {
-            if (key == attachmentKey1)
-                return (V) attachmentValue1;
-            if (key == attachmentKey2)
-                return (V) attachmentValue2;
-        }
-        return null;
+        return (V) attachments.get(key);
     }
 
     /**
@@ -240,27 +215,7 @@ public final class LogContext implements AutoCloseable {
         checkAccess();
         Assert.checkNotNullParam("key", key);
         Assert.checkNotNullParam("value", value);
-        V old;
-        synchronized (this) {
-            if (key == attachmentKey1) {
-                old = (V) attachmentValue1;
-                attachmentValue1 = value;
-            } else if (key == attachmentKey2) {
-                old = (V) attachmentValue2;
-                attachmentValue2 = value;
-            } else if (attachmentKey1 == null) {
-                old = null;
-                attachmentKey1 = key;
-                attachmentValue1 = value;
-            } else if (attachmentKey2 == null) {
-                old = null;
-                attachmentKey2 = key;
-                attachmentValue2 = value;
-            } else {
-                throw attachmentsFull();
-            }
-        }
-        return old;
+        return (V) attachments.put(key, value);
     }
 
     /**
@@ -281,25 +236,7 @@ public final class LogContext implements AutoCloseable {
         checkAccess();
         Assert.checkNotNullParam("key", key);
         Assert.checkNotNullParam("value", value);
-        V old;
-        synchronized (this) {
-            if (key == attachmentKey1) {
-                old = (V) attachmentValue1;
-            } else if (key == attachmentKey2) {
-                old = (V) attachmentValue2;
-            } else if (attachmentKey1 == null) {
-                old = null;
-                attachmentKey1 = key;
-                attachmentValue1 = value;
-            } else if (attachmentKey2 == null) {
-                old = null;
-                attachmentKey2 = key;
-                attachmentValue2 = value;
-            } else {
-                throw attachmentsFull();
-            }
-        }
-        return old;
+        return (V) attachments.putIfAbsent(key, value);
     }
 
     /**
@@ -315,19 +252,7 @@ public final class LogContext implements AutoCloseable {
     public <V> V detach(Logger.AttachmentKey<V> key) throws SecurityException {
         checkAccess();
         Assert.checkNotNullParam("key", key);
-        V old;
-        synchronized (this) {
-            if (key == attachmentKey1) {
-                old = (V) attachmentValue1;
-                attachmentValue1 = null;
-            } else if (key == attachmentKey2) {
-                old = (V) attachmentValue2;
-                attachmentValue2 = null;
-            } else {
-                old = null;
-            }
-        }
-        return old;
+        return (V) attachments.remove(key);
     }
 
     /**
@@ -529,20 +454,7 @@ public final class LogContext implements AutoCloseable {
             for (AutoCloseable handler : closeHandlers) {
                 handler.close();
             }
-            synchronized (this) {
-                attachmentKey1 = null;
-                attachmentKey2 = null;
-                final var value1 = attachmentValue1;
-                attachmentValue1 = null;
-                if (value1 instanceof AutoCloseable) {
-                    ((AutoCloseable) value1).close();
-                }
-                final var value2 = attachmentValue2;
-                attachmentValue2 = null;
-                if (value2 instanceof AutoCloseable) {
-                    ((AutoCloseable) value2).close();
-                }
-            }
+            attachments.clear();
         } finally {
             treeLock.unlock();
         }
