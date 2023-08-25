@@ -258,6 +258,7 @@ public class PeriodicRotatingFileHandlerTests extends AbstractHandlerTest {
         final Path logDir = logDirectory();
         final Path rotated1 = logDir.resolve(FILENAME + firstDateSuffix + archiveSuffix);
         final Path rotated2 = logDir.resolve(FILENAME + secondDateSuffix + archiveSuffix);
+        waitForRotation(archiveSuffix, rotated1, rotated2);
         Assertions.assertTrue(Files.exists(logFile), () -> "Missing file " + logFile);
         Assertions.assertTrue(Files.exists(rotated1), () -> "Missing rotated file " + rotated1);
         Assertions.assertTrue(Files.exists(rotated2), () -> "Missing rotated file " + rotated2);

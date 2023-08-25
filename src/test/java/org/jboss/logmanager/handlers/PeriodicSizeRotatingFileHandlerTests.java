@@ -262,6 +262,7 @@ public class PeriodicSizeRotatingFileHandlerTests extends AbstractHandlerTest {
         final Path logDir = logDirectory();
         final Path path1 = logDir.resolve(FILENAME + currentDate + ".1" + archiveSuffix);
         final Path path2 = logDir.resolve(FILENAME + currentDate + ".2" + archiveSuffix);
+        waitForRotation(archiveSuffix, path1, path2);
         Assertions.assertTrue(Files.exists(logDir));
         Assertions.assertTrue(Files.exists(path1));
         Assertions.assertTrue(Files.exists(path2));

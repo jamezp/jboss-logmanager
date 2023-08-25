@@ -33,6 +33,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
@@ -49,10 +52,12 @@ import org.junit.jupiter.api.TestInfo;
  */
 public class AbstractHandlerTest {
 
+    private static final long TIMEOUT;
     private static final Path BASE_LOG_DIR;
 
     static {
         BASE_LOG_DIR = Path.of(System.getProperty("log.dir"));
+        TIMEOUT = Long.parseLong(System.getProperty("org.jboss.test.timeout", "10"));
     }
 
     final static PatternFormatter FORMATTER = new PatternFormatter("%d{HH:mm:ss,SSS} %-5p [%c] (%t) %s%E%n");
@@ -127,6 +132,54 @@ public class AbstractHandlerTest {
 
     protected ExtLogRecord createLogRecord(final org.jboss.logmanager.Level level, final String format, final Object... args) {
         return new ExtLogRecord(level, String.format(format, args), getClass().getName());
+    }
+
+    /**
+     * Waits for all files to be rotated before exiting.
+     *
+     * @param archiveSuffix the type of the archive
+     * @param expectedFiles the files which need to exist
+     *
+     * @throws InterruptedException if an error occurs while waiting
+     */
+    @SuppressWarnings("SameParameterValue")
+    static void waitForRotation(final String archiveSuffix, final Path... expectedFiles) throws InterruptedException {
+        final Set<Path> files = new ConcurrentSkipListSet<>(Set.of(expectedFiles));
+        final long millis = TIMEOUT * 1000L;
+        final Thread task = new Thread(() -> {
+            long t = millis;
+            while (t > 0) {
+                files.removeIf(f -> {
+                    try {
+                        if (Files.exists(f)) {
+                            // Attempt to read the archive, if it ends in an error then we assume the write is not complete
+                            if (".gz".equalsIgnoreCase(archiveSuffix)) {
+                                readAllLinesFromGzip(f);
+                                return true;
+                            }
+                            return isValidZip(f);
+                        }
+                    } catch (Throwable ignore) {
+                        // TODO (jrp) this should be removed and we should ignore it or create some kind of debug flag
+                        ignore.printStackTrace();
+                    }
+                    return false;
+                });
+                if (files.isEmpty()) {
+                    break;
+                }
+                try {
+                    TimeUnit.MILLISECONDS.sleep(200L);
+                } catch (InterruptedException ignore) {
+                }
+                t -= 200L;
+            }
+        });
+        task.start();
+        task.join();
+        if (!files.isEmpty()) {
+            Assertions.fail(String.format("Failed to find all files within %d seconds. Missing files: %s", TIMEOUT, files));
+        }
     }
 
     /**
@@ -233,5 +286,16 @@ public class AbstractHandlerTest {
             }
         }
         return lines;
+    }
+
+    private static boolean isValidZip(final Path path) throws IOException {
+        try (
+                final FileSystem zipFs = FileSystems.newFileSystem(URI.create("jar:" + path.toUri().toASCIIString()),
+                        Collections.singletonMap("create", "true"))) {
+            // Simply walk the file stream and assume if there are any entries, the ZIP is fully written
+            try (Stream<Path> files = Files.list(zipFs.getPath("/"))) {
+                return files.findAny().isPresent();
+            }
+        }
     }
 }
