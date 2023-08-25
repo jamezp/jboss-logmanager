@@ -160,20 +160,9 @@ class SuffixRotator {
      */
     void rotate(final ErrorManager errorManager, final Path source, final String suffix) {
         final Path target = Paths.get(source + suffix + compressionSuffix);
-        if (compressionType == CompressionType.GZIP) {
+        if (compressionType == CompressionType.GZIP || compressionType == CompressionType.ZIP) {
             try {
-                archiveGzip(source, target);
-                // Delete the file after it's archived to behave like a file move or rename
-                deleteFile(source);
-            } catch (Exception e) {
-                errorManager.error(String.format("Failed to compress %s to %s. Compressed file may be left on the " +
-                        "filesystem corrupted.", source, target), e, ErrorManager.WRITE_FAILURE);
-            }
-        } else if (compressionType == CompressionType.ZIP) {
-            try {
-                archiveZip(source, target);
-                // Delete the file after it's archived to behave like a file move or rename
-                deleteFile(source);
+                archive(errorManager, source, target);
             } catch (Exception e) {
                 errorManager.error(String.format("Failed to compress %s to %s. Compressed file may be left on the " +
                         "filesystem corrupted.", source, target), e, ErrorManager.WRITE_FAILURE);
@@ -263,8 +252,58 @@ class SuffixRotator {
         }
     }
 
+    private void archive(final ErrorManager errorManager, final Path source, final Path target) throws IOException {
+        // Copy the file to a temporary file
+        final Path temp = Files.createTempFile(source.getFileName().toString(), ".tmp");
+        Files.move(source, temp, StandardCopyOption.REPLACE_EXISTING);
+        // Create the callable for the move
+        final Runnable task = () -> {
+            try {
+                if (compressionType == CompressionType.GZIP) {
+                    archiveGzip(temp, target);
+                } else if (compressionType == CompressionType.ZIP) {
+                    archiveZip(temp, target);
+                } else {
+                    // TODO (jrp) what do we do here? Definitely not this.
+                    throw new RuntimeException("Invalid compression type: " + compressionType);
+                }
+            } catch (Exception e) {
+                // Determine the new target file name
+                final Path dir = source.getParent();
+                Path failedTarget;
+                if (dir == null) {
+                    failedTarget = Path.of(source.getFileName().toString() + ".failed");
+                } else {
+                    failedTarget = dir.resolve(source.getFileName().toString() + ".failed");
+                }
+                final Path root = failedTarget;
+                int index = 0;
+                while (Files.exists(failedTarget)) {
+                    if (dir == null) {
+                        failedTarget = Path.of(root.getFileName().toString() + ++index);
+                    } else {
+                        failedTarget = dir.resolve(root.getFileName().toString() + ++index);
+                    }
+                    // TODO (jrp) we should check that we don't fail too many times and if we do, just give up
+                }
+                try {
+                    Files.move(temp, failedTarget);
+                    errorManager.error(String.format("Failed to archive %s. Copied the file back to %s.", source, failedTarget),
+                            e, ErrorManager.WRITE_FAILURE);
+                } catch (IOException ioe) {
+                    errorManager.error(String.format("Failed to move file %s back to %s.", temp, failedTarget), ioe,
+                            ErrorManager.WRITE_FAILURE);
+                }
+            }
+        };
+        // Create a new thread and launch it for rotation
+        // TODO (jrp) we should likely use an Executor to avoid too many threads launching if things get noisy.
+        final Thread thread = new Thread(task, "JBoss Log Manager Rotation Archiver");
+        thread.start();
+    }
+
     private void archiveGzip(final Path source, final Path target) throws IOException {
-        final byte[] buff = new byte[512];
+        final byte[] buff = new byte[2048];
         try (final GZIPOutputStream out = new GZIPOutputStream(newOutputStream(target), true)) {
             try (final InputStream in = newInputStream(source)) {
                 int len;
@@ -277,7 +316,7 @@ class SuffixRotator {
     }
 
     private void archiveZip(final Path source, final Path target) throws IOException {
-        final byte[] buff = new byte[512];
+        final byte[] buff = new byte[2048];
         try (final ZipOutputStream out = new ZipOutputStream(newOutputStream(target), StandardCharsets.UTF_8)) {
             final ZipEntry entry = new ZipEntry(source.getFileName().toString());
             out.putNextEntry(entry);
