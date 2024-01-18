@@ -49,33 +49,34 @@ public class AssertingErrorManager extends ErrorManager {
         return new AssertingErrorManager(allowedCodes);
     }
 
+    @SuppressWarnings("CallToPrintStackTrace")
     @Override
     public void error(final String msg, final Exception ex, final int code) {
+        final String codeStr;
+        switch (code) {
+            case CLOSE_FAILURE:
+                codeStr = "CLOSE_FAILURE";
+                break;
+            case FLUSH_FAILURE:
+                codeStr = "FLUSH_FAILURE";
+                break;
+            case FORMAT_FAILURE:
+                codeStr = "FORMAT_FAILURE";
+                break;
+            case GENERIC_FAILURE:
+                codeStr = "GENERIC_FAILURE";
+                break;
+            case OPEN_FAILURE:
+                codeStr = "OPEN_FAILURE";
+                break;
+            case WRITE_FAILURE:
+                codeStr = "WRITE_FAILURE";
+                break;
+            default:
+                codeStr = "INVALID (" + code + ")";
+                break;
+        }
         if (notAllowed(code)) {
-            final String codeStr;
-            switch (code) {
-                case CLOSE_FAILURE:
-                    codeStr = "CLOSE_FAILURE";
-                    break;
-                case FLUSH_FAILURE:
-                    codeStr = "FLUSH_FAILURE";
-                    break;
-                case FORMAT_FAILURE:
-                    codeStr = "FORMAT_FAILURE";
-                    break;
-                case GENERIC_FAILURE:
-                    codeStr = "GENERIC_FAILURE";
-                    break;
-                case OPEN_FAILURE:
-                    codeStr = "OPEN_FAILURE";
-                    break;
-                case WRITE_FAILURE:
-                    codeStr = "WRITE_FAILURE";
-                    break;
-                default:
-                    codeStr = "INVALID (" + code + ")";
-                    break;
-            }
             try (
                     StringWriter sw = new StringWriter();
                     PrintWriter pw = new PrintWriter(sw)) {
@@ -86,6 +87,12 @@ public class AssertingErrorManager extends ErrorManager {
                 // This shouldn't happen, but just fail if it does
                 e.printStackTrace();
                 Assertions.fail(String.format("Failed to print error message: %s", e.getMessage()));
+            }
+        } else {
+            // Just print the error, we likely shouldn't just ignore it
+            System.out.printf("LogManager error of type %s: %s%n", codeStr, msg);
+            if (ex != null) {
+                ex.printStackTrace();
             }
         }
     }
