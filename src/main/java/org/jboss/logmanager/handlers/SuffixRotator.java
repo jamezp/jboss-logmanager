@@ -34,7 +34,6 @@ import java.security.PrivilegedAction;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
 import java.util.logging.ErrorManager;
@@ -318,7 +317,7 @@ class SuffixRotator {
                 }
             }
         };
-        return CompletableFuture.supplyAsync(task);
+        return AsyncTaskHandler.supplyAsync(task);
     }
 
     private void archiveGzip(final Path source, final Path target) throws IOException {
