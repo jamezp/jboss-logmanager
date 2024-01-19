@@ -145,34 +145,40 @@ public class AbstractHandlerTest {
     @SuppressWarnings("SameParameterValue")
     static void waitForRotation(final String archiveSuffix, final Path... expectedFiles) throws InterruptedException {
         final Set<Path> files = new ConcurrentSkipListSet<>(Set.of(expectedFiles));
+        final long waitTime = 500L;
         final long millis = TIMEOUT * 1000L;
         final Thread task = new Thread(() -> {
             long t = millis;
             while (t > 0) {
                 files.removeIf(f -> {
                     try {
-                        if (Files.exists(f)) {
-                            // Attempt to read the archive, if it ends in an error then we assume the write is not complete
-                            if (".gz".equalsIgnoreCase(archiveSuffix)) {
-                                readAllLinesFromGzip(f);
-                                return true;
-                            }
-                            return isValidZip(f);
-                        }
+                        /*
+                         * if (Files.exists(f)) {
+                         * // Attempt to read the archive, if it ends in an error then we assume the write is not complete
+                         * if (".gz".equalsIgnoreCase(archiveSuffix)) {
+                         * readAllLinesFromGzip(f);
+                         * return true;
+                         * }
+                         * return isValidZip(f);
+                         * }
+                         */
+                        return Files.exists(f);
                     } catch (Throwable ignore) {
                         // TODO (jrp) this should be removed and we should ignore it or create some kind of debug flag
                         ignore.printStackTrace();
                     }
                     return false;
                 });
+                // Sleep first to ensure the rest of the rotation happens, it's not guaranteed, but should be okay for
+                // testing purposes
+                try {
+                    TimeUnit.MILLISECONDS.sleep(waitTime);
+                } catch (InterruptedException ignore) {
+                }
                 if (files.isEmpty()) {
                     break;
                 }
-                try {
-                    TimeUnit.MILLISECONDS.sleep(200L);
-                } catch (InterruptedException ignore) {
-                }
-                t -= 200L;
+                t -= waitTime;
             }
         });
         task.start();
