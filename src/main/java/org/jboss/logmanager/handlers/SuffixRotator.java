@@ -34,8 +34,8 @@ import java.security.PrivilegedAction;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.CompletionStage;
-import java.util.function.Supplier;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.ErrorManager;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
@@ -162,27 +162,22 @@ class SuffixRotator {
      * @param source       the file to be rotated
      * @param suffix       the suffix to append to the rotated file.
      */
-    void rotate(final ErrorManager errorManager, final Path source, final String suffix) {
+    CompletableFuture<Path> rotate(final ErrorManager errorManager, final Path source, final String suffix) {
+        CompletableFuture<Path> cf;
         final Path target = Paths.get(source + suffix + compressionSuffix);
         if (compressionType == CompressionType.GZIP || compressionType == CompressionType.ZIP) {
             try {
-                archive(errorManager, source, target)
-                        .whenComplete((file, error) -> {
-                            if (error != null) {
-                                final Exception e = (error instanceof Exception) ? (Exception) error : new Exception(error);
-                                errorManager.error(
-                                        String.format("Failed to archive file %s. Log file should be available at %s.", source,
-                                                file),
-                                        e, ErrorManager.WRITE_FAILURE);
-                            }
-                        });
+                cf = CompletableFuture.supplyAsync(() -> archive(errorManager, source, target));
             } catch (Exception e) {
+                cf = CompletableFuture.completedFuture(source);
                 errorManager.error(String.format("Failed to compress %s to %s. Compressed file may be left on the " +
                         "filesystem corrupted.", source, target), e, ErrorManager.WRITE_FAILURE);
             }
         } else {
             move(errorManager, source, target);
+            cf = CompletableFuture.completedFuture(target);
         }
+        return cf;
     }
 
     /**
@@ -224,7 +219,32 @@ class SuffixRotator {
      * @param maxBackupIndex the number of backups to keep
      */
     void rotate(final ErrorManager errorManager, final Path source, final String suffix, final int maxBackupIndex) {
+        internalRotate(errorManager, source, suffix, maxBackupIndex);
+    }
+
+    @Override
+    public String toString() {
+        return originalSuffix;
+    }
+
+    /**
+     * Rotates the file to a new file appending the suffix to the target.
+     * <p>
+     * If the {@code maxBackupIndex} is greater than 0 previously rotated files will be moved to an numerically
+     * incremented target. The compression suffix, if required, will be appended to this indexed file name.
+     * </p>
+     *
+     * @param errorManager   the error manager used to report errors to, if {@code null} an {@link IOException} will
+     *                       be thrown
+     * @param source         the file to be rotated
+     * @param suffix         the optional suffix to append to the file before the index and optional compression suffix
+     * @param maxBackupIndex the number of backups to keep
+     */
+    private void internalRotate(final ErrorManager errorManager, final Path source, final String suffix,
+            final int maxBackupIndex) {
+        final CompletableFuture<Path> cf;
         if (maxBackupIndex > 0) {
+
             final String rotationSuffix = (suffix == null ? "" : suffix);
             final String fileWithSuffix = source.toAbsolutePath() + rotationSuffix;
             final Path lastFile = Paths.get(fileWithSuffix + "." + maxBackupIndex + compressionSuffix);
@@ -240,15 +260,29 @@ class SuffixRotator {
                     move(errorManager, src, target);
                 }
             }
-            rotate(errorManager, source, rotationSuffix + ".1");
+            cf = rotate(errorManager, source, rotationSuffix + ".1");
         } else if (suffix != null && !suffix.isEmpty()) {
-            rotate(errorManager, source, suffix);
+            cf = rotate(errorManager, source, suffix);
+        } else {
+            // Is this right?
+            cf = CompletableFuture.completedFuture(source);
         }
-    }
-
-    @Override
-    public String toString() {
-        return originalSuffix;
+        // TODO (jrp) what do we really do here? We definitely need a timeout too
+        try {
+            cf.whenComplete((file, error) -> {
+                if (error != null) {
+                    final Exception e = (error instanceof Exception) ? (Exception) error : new Exception(error);
+                    errorManager.error(
+                            String.format("Failed to rotate file %s. Log file should be available at %s.", source,
+                                    file),
+                            e, ErrorManager.WRITE_FAILURE);
+                }
+            }).get();
+        } catch (InterruptedException | ExecutionException e) {
+            errorManager.error(
+                    String.format("Failed to rotate file %s.", source),
+                    e, ErrorManager.WRITE_FAILURE);
+        }
     }
 
     private void move(final ErrorManager errorManager, final Path src, final Path target) {
@@ -265,13 +299,11 @@ class SuffixRotator {
         }
     }
 
-    private CompletionStage<Path> archive(final ErrorManager errorManager, final Path source, final Path target)
-            throws IOException {
-        // Copy the file to a temporary file
-        final Path temp = Files.createTempFile(source.getFileName().toString(), ".tmp");
-        Files.move(source, temp, StandardCopyOption.REPLACE_EXISTING);
-        // Create the callable for the move
-        final Supplier<Path> task = () -> {
+    private Path archive(final ErrorManager errorManager, final Path source, final Path target) {
+        try {
+            // Copy the file to a temporary file
+            final Path temp = Files.createTempFile(source.getFileName().toString(), ".tmp");
+            Files.move(source, temp, StandardCopyOption.REPLACE_EXISTING);
             try {
                 if (compressionType == CompressionType.GZIP) {
                     archiveGzip(temp, target);
@@ -316,8 +348,10 @@ class SuffixRotator {
                     return temp;
                 }
             }
-        };
-        return AsyncTaskHandler.supplyAsync(task);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
     }
 
     private void archiveGzip(final Path source, final Path target) throws IOException {

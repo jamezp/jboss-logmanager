@@ -32,6 +32,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.ChronoUnit;
 import java.util.TimeZone;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.ErrorManager;
 
 import org.jboss.logmanager.ExtLogRecord;
@@ -229,10 +230,11 @@ public class PeriodicRotatingFileHandler extends FileHandler {
             // first, close the original file (some OSes won't let you move/rename a file that is open)
             setFileInternal(null);
             // next, rotate it
-            suffixRotator.rotate(SecurityActions.getErrorManager(acc, this), file.toPath(), nextSuffix);
+            // TODO (jrp) what do we do here? we definitely need to use a timeout
+            suffixRotator.rotate(SecurityActions.getErrorManager(acc, this), file.toPath(), nextSuffix).get();
             // start new file
             setFileInternal(file);
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException | ExecutionException e) {
             reportError("Unable to rotate log file", e, ErrorManager.OPEN_FAILURE);
         }
     }
