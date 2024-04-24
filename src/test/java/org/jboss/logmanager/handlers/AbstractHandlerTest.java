@@ -34,8 +34,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
@@ -145,45 +148,34 @@ public class AbstractHandlerTest {
     @SuppressWarnings("SameParameterValue")
     static void waitForRotation(final String archiveSuffix, final Path... expectedFiles) throws InterruptedException {
         final Set<Path> files = new ConcurrentSkipListSet<>(Set.of(expectedFiles));
-        final long waitTime = 500L;
-        final long millis = TIMEOUT * 1000L;
-        final Thread task = new Thread(() -> {
-            long t = millis;
-            while (t > 0) {
+        final CompletableFuture<Boolean> cf = CompletableFuture.supplyAsync(() -> {
+            while (!files.isEmpty()) {
+                Thread.onSpinWait();
                 files.removeIf(f -> {
                     try {
-                        /*
-                         * if (Files.exists(f)) {
-                         * // Attempt to read the archive, if it ends in an error then we assume the write is not complete
-                         * if (".gz".equalsIgnoreCase(archiveSuffix)) {
-                         * readAllLinesFromGzip(f);
-                         * return true;
-                         * }
-                         * return isValidZip(f);
-                         * }
-                         */
+                        if (Files.exists(f)) {
+                            // Attempt to read the archive, if it ends in an error then we assume the write is not complete
+                            if (".gz".equalsIgnoreCase(archiveSuffix)) {
+                                readAllLinesFromGzip(f);
+                                return true;
+                            }
+                            return isValidZip(f);
+                        }
                         return Files.exists(f);
                     } catch (Throwable ignore) {
-                        // TODO (jrp) this should be removed and we should ignore it or create some kind of debug flag
+                        // TODO (jrp) leaving for now in case there are other errors visable
                         ignore.printStackTrace();
                     }
                     return false;
                 });
-                // Sleep first to ensure the rest of the rotation happens, it's not guaranteed, but should be okay for
-                // testing purposes
-                try {
-                    TimeUnit.MILLISECONDS.sleep(waitTime);
-                } catch (InterruptedException ignore) {
-                }
-                if (files.isEmpty()) {
-                    break;
-                }
-                t -= waitTime;
             }
+            return true;
         });
-        task.start();
-        task.join();
-        if (!files.isEmpty()) {
+        try {
+            if (!cf.get(TIMEOUT, TimeUnit.SECONDS)) {
+                Assertions.fail(String.format("Failed to find all files within %d seconds. Missing files: %s", TIMEOUT, files));
+            }
+        } catch (ExecutionException | TimeoutException e) {
             Assertions.fail(String.format("Failed to find all files within %d seconds. Missing files: %s", TIMEOUT, files));
         }
     }
