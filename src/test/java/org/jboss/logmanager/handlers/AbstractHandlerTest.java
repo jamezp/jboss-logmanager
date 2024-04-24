@@ -26,8 +26,11 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -153,6 +156,8 @@ public class AbstractHandlerTest {
                 Thread.onSpinWait();
                 files.removeIf(f -> {
                     try {
+                        System.out.printf("Checking file %s%n", f);
+                        listFiles();
                         if (Files.exists(f)) {
                             // Attempt to read the archive, if it ends in an error then we assume the write is not complete
                             if (".gz".equalsIgnoreCase(archiveSuffix)) {
@@ -295,5 +300,15 @@ public class AbstractHandlerTest {
                 return files.findAny().isPresent();
             }
         }
+    }
+
+    private static void listFiles() throws IOException {
+        Files.walkFileTree(BASE_LOG_DIR, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) {
+                System.out.println(file);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }
