@@ -48,7 +48,7 @@ class AsyncTaskHandler {
             EXECUTOR = Executors.newSingleThreadExecutor(r -> {
                 final Thread thread = new Thread(r);
                 thread.setName("JBoss Log Manager Handler Task");
-                thread.setDaemon(true);
+                thread.setDaemon(false);
                 return thread;
             });
             final Thread shutdownTask = new Thread(() -> {
